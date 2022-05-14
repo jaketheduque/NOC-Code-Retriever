@@ -9,61 +9,87 @@ import org.apache.poi.ss.usermodel.Workbook;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
-import org.openqa.selenium.htmlunit.HtmlUnitDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.ResourceBundle;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.net.Socket;
+import java.net.SocketException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.util.*;
+import java.util.stream.Stream;
 
 public class NVCourtWebscraper {
     private static final Logger log = LoggerFactory.getLogger(NVCourtWebscraper.class);
 
     private static final ResourceBundle PROPERTIES = ResourceBundle.getBundle("application");
     private static final String COURT_URL = PROPERTIES.getString("court_url");
+    private static final String DOWNLOAD_FILEPATH = PROPERTIES.getString("temp_file_download_path");
+    private static final String CHROMEDRIVER_PATH = PROPERTIES.getString("chromedriver_path");
 
-    public static void main(String[] args) throws ClassNotFoundException {
-        log.info("Launching headless browser");
+    public static void main(String[] args) throws InterruptedException, IOException {
+        log.info("Launching Selenium browser");
+
+        System.setProperty("webdriver.chrome.driver", CHROMEDRIVER_PATH);
+
+        // Sets up ChromeDriver download folder location
+        HashMap<String, Object> chromePrefs = new HashMap<>();
+        chromePrefs.put("profile.default_content_settings.popups", 0);
+        chromePrefs.put("download.default_directory", DOWNLOAD_FILEPATH);
+        ChromeOptions options = new ChromeOptions();
+        options.setExperimentalOption("prefs", chromePrefs);
 
         // Instantiates a new headless WebDriver object
-        WebDriver driver = new HtmlUnitDriver();
+        WebDriver driver = new ChromeDriver(options);
 
         driver.get(COURT_URL);
 
         log.info("Court website loaded");
 
         WebElement element = driver.findElement(By.xpath("//a[contains(text(), '(3) NOC_NIBRS (current)')]"));
-        String downloadURL = element.getAttribute("href");
 
-        log.info("Download URL obtained");
-        log.info("URL: " + downloadURL);
-        log.info("Closing headless browser");
+        // Clicks the file, thus downloading the file
+        element.click();
 
-        driver.close();
+        log.info("Downloading file!");
 
-        // Saves the file to temp.xls
-        try (BufferedInputStream in = new BufferedInputStream(new URL(downloadURL).openStream());
-             FileOutputStream out = new FileOutputStream("temp.xls")) {
-            byte dataBuffer[] = new byte[1024];
-            int bytesRead;
-            while ((bytesRead = in.read(dataBuffer, 0, 1024)) != -1) {
-                out.write(dataBuffer, 0, bytesRead);
-            }
+        Thread.sleep(20 * 1000);
+
+        log.info("Closing Chrome browser");
+
+        driver.quit();
+
+        log.info("Temporary file saved");
+
+        String filename = null;
+        // Gets (what should be) the only xls file in the temp directory
+        try (Stream<Path> walk = Files.walk(Paths.get(DOWNLOAD_FILEPATH))) {
+            filename = walk
+                    .filter(p -> !Files.isDirectory(p))
+                    .map(p -> p.toString().toLowerCase())
+                    .filter(f -> f.endsWith("xls"))
+                    .findFirst()
+                    .get();
         } catch (IOException e) {
-            log.error("Error saving file! Please check exception");
             e.printStackTrace();
         }
 
-        log.info("Temporary file saved");
+        log.info("Downloaded File Filename: " + filename);
 
         // Parses the saved xls file and prepares an array for population
         NOCEntry[] entries = null;
         try {
-            Workbook workbook = new HSSFWorkbook(new FileInputStream("temp.xls"));
+            Workbook workbook = new HSSFWorkbook(new FileInputStream(filename));
 
             Sheet sheet = workbook.getSheetAt(0);
 
@@ -94,15 +120,65 @@ public class NVCourtWebscraper {
             log.info("Deleting temporary file");
 
             // Deletes the temp.xml file
-            new File("temp.xls").delete();
+            new File(filename).delete();
+
+            log.info("Terminating all chromedriver processes");
+            Runtime.getRuntime().exec("taskkill /F /IM chromedriver.exe /T");
         }
 
-        /** Implement SQL at later date
-        // Loads the SQL driver
-        Class.forName("oracle.jdbc.driver.OracleDriver");
-        String url = PROPERTIES.getString("sql_url");
-        String username = PROPERTIES.getString("sql_username");
-        String password = PROPERTIES.getString("sql_password");
-        */
+        // Parameters to connect to database
+        String url = PROPERTIES.getString("db_url");
+        String name = PROPERTIES.getString("db_name");
+        String username = PROPERTIES.getString("db_username");
+        String password = PROPERTIES.getString("db_password");
+
+        String connectionUrl =
+                "jdbc:sqlserver://" + url + ":1433;"
+                        + "database=" + name + ";"
+                        + "user=" + username + ";"
+                        + "password=" + password + ";"
+                        + "encrypt=true;trustServerCertificate=true;loginTimeout=30;";
+
+        log.info("Connecting to NOC database");
+        // Connects to production database
+        try (Connection connection = DriverManager.getConnection(connectionUrl)) {
+            // Clears table contents before inserting new data
+            PreparedStatement stmt = connection.prepareStatement("DELETE FROM dbo.NOCList");
+            stmt.execute();
+
+            log.info("Previous table entries cleared");
+
+            // Prepares INSERT statement
+            stmt = connection.prepareStatement("INSERT INTO dbo.NOCList VALUES (?, ?, ?, ?, ?)");
+
+            // Adds each row of the xls file to the SQL statement
+            int id = 1;
+            for (NOCEntry e : entries) {
+                try {
+                    stmt.clearParameters();
+                    stmt.setInt(1, id++);
+                    stmt.setInt(2, e.getNoc());
+                    stmt.setString(3, e.getDescription());
+                    stmt.setString(4, e.getReportable());
+                    stmt.setString(5, e.getDegree());
+
+                    stmt.addBatch();
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                }
+            }
+
+            log.info("About to add " + (id - 1) + " entries to NOC database");
+
+            // Executes the SQL update
+            stmt.clearParameters();
+            int[] results = stmt.executeBatch();
+
+            log.info("Added " + results.length + " entries");
+        }
+        // Handle any errors that may have occurred.
+        catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 }
