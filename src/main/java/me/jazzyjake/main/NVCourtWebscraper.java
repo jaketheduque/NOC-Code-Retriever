@@ -17,8 +17,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.net.Socket;
-import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,7 +24,10 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.ResourceBundle;
 import java.util.stream.Stream;
 
 public class NVCourtWebscraper {
@@ -168,13 +169,13 @@ public class NVCourtWebscraper {
                 }
             }
 
-            log.info("About to add " + (id - 1) + " entries to NOC database");
+            log.info("About to add {} entries to NOC database", (id - 1));
 
             // Executes the SQL update
             stmt.clearParameters();
             int[] results = stmt.executeBatch();
 
-            log.info("Added " + results.length + " entries");
+            log.info("Added entries", results.length);
         }
         // Handle any errors that may have occurred.
         catch (SQLException e) {
