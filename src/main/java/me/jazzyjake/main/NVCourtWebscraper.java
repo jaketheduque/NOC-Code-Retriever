@@ -175,7 +175,7 @@ public class NVCourtWebscraper {
             stmt.clearParameters();
             int[] results = stmt.executeBatch();
 
-            log.info("Added entries", results.length);
+            log.info("Added {} entries", results.length);
         }
         // Handle any errors that may have occurred.
         catch (SQLException e) {
