@@ -1,6 +1,8 @@
 package me.jazzyjake.main;
 
 import me.jazzyjake.data.NOCEntry;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
@@ -11,8 +13,6 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -31,7 +31,7 @@ import java.util.ResourceBundle;
 import java.util.stream.Stream;
 
 public class NVCourtWebscraper {
-    private static final Logger log = LoggerFactory.getLogger(NVCourtWebscraper.class);
+    private static final Logger log = LogManager.getLogger(NVCourtWebscraper.class);
 
     private static final ResourceBundle PROPERTIES = ResourceBundle.getBundle("application");
     private static final String COURT_URL = PROPERTIES.getString("court_url");
@@ -180,6 +180,7 @@ public class NVCourtWebscraper {
         // Handle any errors that may have occurred.
         catch (SQLException e) {
             e.printStackTrace();
+            log.error("SQL Exception occurred!", e);
         }
     }
 }
