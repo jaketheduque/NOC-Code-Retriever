@@ -225,7 +225,7 @@ public class NVCourtWebscraper {
         ResultSet rs = stmt.executeQuery();
 
         // Prepares SQL stored procedure statement to update specified database row by row with new NOC entries
-        stmt = conn.prepareStatement("{call sp_SYS_InsertCodeValue(?, ?, ?)}");
+        stmt = conn.prepareStatement("{call sp_SYS_InsertCodeValue(?, ?, ?, ?, ?)}");
 
         // Adds each new NOC code from Reporting database to batch SQL statement
         int count = 0;
@@ -234,6 +234,8 @@ public class NVCourtWebscraper {
             stmt.setInt(1, rs.getInt(2));
             stmt.setString(2, rs.getString(3));
             stmt.setString(3, type);
+            stmt.setString(4, updateDB);
+            stmt.setString(5, PROPERTIES.getString("broker_username"));
             stmt.addBatch();
             count++;
         }
